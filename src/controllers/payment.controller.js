@@ -4,7 +4,7 @@ import {
   processPaymentService,
 } from "../services/payment.service.js";
 import connectDB from "../db/connectDB.js";
-import Payment from "../models/payment.model.js";
+import Payment from "../db/models/payment.js";
 
 export const processPaymentController = async (req, res) => {
   try {
