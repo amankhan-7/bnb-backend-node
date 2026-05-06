@@ -6,9 +6,12 @@ import {
   getBookingByIdService,
   cancelBookingService,
 } from "../services/booking.service.js";
+import connectDB from "../db/connectDB.js";
 
 export const createBookingController = async (req, res) => {
   try {
+    await connectDB();
+
     const userId = req.user.id;
 
     const { hotelId, roomId, fromDate, toDate, totalPrice } = req.body;
@@ -29,8 +32,9 @@ export const createBookingController = async (req, res) => {
 };
 
 export const getUserBookingsController = async (req, res) => {
-  
   try {
+    await connectDB();
+
     const bookings = await getUserBookingsService(req.user.id);
     res.json({ success: true, bookings });
   } catch (err) {
@@ -40,6 +44,8 @@ export const getUserBookingsController = async (req, res) => {
 
 export const getBookingByIdController = async (req, res) => {
   try {
+    await connectDB();
+
     const booking = await getBookingByIdService(req.params.id);
     res.json({ success: true, booking });
   } catch (err) {
@@ -48,8 +54,9 @@ export const getBookingByIdController = async (req, res) => {
 };
 
 export const cancelBookingController = async (req, res) => {
- 
   try {
+    await connectDB();
+
     const booking = await cancelBookingService(req.params.id);
     res.json({ success: true, booking });
   } catch (err) {

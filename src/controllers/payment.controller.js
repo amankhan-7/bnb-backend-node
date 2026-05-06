@@ -3,9 +3,13 @@
 import {
   processPaymentService,
 } from "../services/payment.service.js";
+import connectDB from "../db/connectDB.js";
+import Payment from "../models/payment.model.js";
 
 export const processPaymentController = async (req, res) => {
   try {
+    await connectDB();
+
     const userId = req.user.id;
 
     const { bookingId, method, pin } = req.body;
@@ -27,6 +31,8 @@ export const processPaymentController = async (req, res) => {
 
 export const getPaymentByBookingController = async (req, res) => {
   try {
+    await connectDB();
+
     const { bookingId } = req.params;
 
     const payment = await Payment.findOne({ bookingId });
@@ -38,7 +44,6 @@ export const getPaymentByBookingController = async (req, res) => {
       });
     }
 
-    //ensure user owns this payment
     if (payment.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,

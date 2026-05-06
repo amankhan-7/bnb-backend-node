@@ -1,10 +1,13 @@
 // controllers/room.controller.js
 
 import roomService from "../services/room.service.js";
+import connectDB from "../db/connectDB.js";
 
-//Create Room
+// Create Room
 const createRoom = async (req, res) => {
   try {
+    await connectDB();
+
     const room = await roomService.createRoom(req.body, req.user.id);
 
     res.status(201).json(room);
@@ -16,6 +19,8 @@ const createRoom = async (req, res) => {
 // Get Rooms by Hotel
 const getRoomsByHotel = async (req, res) => {
   try {
+    await connectDB();
+
     const rooms = await roomService.getRoomsByHotel(req.params.hotelId);
 
     res.json(rooms);
@@ -27,6 +32,8 @@ const getRoomsByHotel = async (req, res) => {
 // Get Room by ID
 const getRoomById = async (req, res) => {
   try {
+    await connectDB();
+
     const room = await roomService.getRoomById(req.params.roomId);
 
     res.json(room);
@@ -38,6 +45,8 @@ const getRoomById = async (req, res) => {
 // Update Room
 const updateRoom = async (req, res) => {
   try {
+    await connectDB();
+
     const room = await roomService.updateRoom(
       req.params.roomId,
       req.body,
@@ -53,6 +62,8 @@ const updateRoom = async (req, res) => {
 // Delete Room
 const deleteRoom = async (req, res) => {
   try {
+    await connectDB();
+
     await roomService.deleteRoom(req.params.roomId, req.user.id);
 
     res.status(204).send();

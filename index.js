@@ -13,7 +13,7 @@ const app = express();
 // CORS
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN,
+    origin: "https://bnb-frontend-ssr.vercel.app/",
     methods: ["GET", "POST", "PUT", "DELETE","PATCH"],
     credentials: true,
   })

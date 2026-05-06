@@ -1,8 +1,11 @@
 import authService from "../services/user.service.js";
+import connectDB from "../db/connectDB.js";
 
 // Signup
 const signup = async (req, res) => {
   try {
+    await connectDB();
+
     const user = await authService.signup(req.body);
     res.status(201).json(user);
   } catch (err) {
@@ -13,6 +16,8 @@ const signup = async (req, res) => {
 // Login
 const login = async (req, res) => {
   try {
+    await connectDB();
+
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -34,6 +39,8 @@ const login = async (req, res) => {
 // Refresh Token
 const refresh = async (req, res) => {
   try {
+    await connectDB();
+
     const { refreshToken } = req.body;
     const data = await authService.refresh(refreshToken);
     res.status(200).json(data);
@@ -44,6 +51,8 @@ const refresh = async (req, res) => {
 
 const getUserById = async (req, res) => {
   try {
+    await connectDB();
+
     const user = await authService.getUserById(req.user.id);
 
     res.status(200).json(user);
@@ -54,9 +63,10 @@ const getUserById = async (req, res) => {
   }
 };
 
-
 const updateUser = async (req, res) => {
   try {
+    await connectDB();
+
     const userId = req.user.id;
     const { password, ...updateData } = req.body;
 

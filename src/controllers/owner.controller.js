@@ -1,7 +1,10 @@
 import ownerService from "../services/owner.service.js";
+import connectDB from "../db/connectDB.js";
 
 const createHotel = async (req, res) => {
   try {
+    await connectDB();
+
     const hotel = await ownerService.createOwnerHotel(req.user.id, req.body);
     res.status(201).json(hotel);
   } catch (err) {
@@ -11,6 +14,8 @@ const createHotel = async (req, res) => {
 
 const getMyHotels = async (req, res) => {
   try {
+    await connectDB();
+
     const hotels = await ownerService.getOwnerHotels(req.user.id);
     res.status(200).json(hotels);
   } catch (err) {
@@ -20,7 +25,12 @@ const getMyHotels = async (req, res) => {
 
 const getMyHotelById = async (req, res) => {
   try {
-    const hotel = await ownerService.getOwnerHotelById(req.user.id, req.params.hotelId);
+    await connectDB();
+
+    const hotel = await ownerService.getOwnerHotelById(
+      req.user.id,
+      req.params.hotelId
+    );
     res.status(200).json(hotel);
   } catch (err) {
     res.status(404).json({ error: err.message });
@@ -29,6 +39,8 @@ const getMyHotelById = async (req, res) => {
 
 const updateMyHotel = async (req, res) => {
   try {
+    await connectDB();
+
     const hotel = await ownerService.updateOwnerHotel(
       req.user.id,
       req.params.hotelId,
@@ -42,6 +54,8 @@ const updateMyHotel = async (req, res) => {
 
 const deleteMyHotel = async (req, res) => {
   try {
+    await connectDB();
+
     await ownerService.deleteOwnerHotel(req.user.id, req.params.hotelId);
     res.status(204).send();
   } catch (err) {
@@ -51,7 +65,12 @@ const deleteMyHotel = async (req, res) => {
 
 const activateMyHotel = async (req, res) => {
   try {
-    const hotel = await ownerService.activateOwnerHotel(req.user.id, req.params.hotelId);
+    await connectDB();
+
+    const hotel = await ownerService.activateOwnerHotel(
+      req.user.id,
+      req.params.hotelId
+    );
     res.status(200).json(hotel);
   } catch (err) {
     res.status(403).json({ error: err.message });
@@ -60,6 +79,8 @@ const activateMyHotel = async (req, res) => {
 
 const createRoom = async (req, res) => {
   try {
+    await connectDB();
+
     const room = await ownerService.createRoomForOwnerHotel(
       req.user.id,
       req.params.hotelId,
@@ -73,7 +94,12 @@ const createRoom = async (req, res) => {
 
 const getRoomsByHotel = async (req, res) => {
   try {
-    const rooms = await ownerService.getOwnerRoomsByHotel(req.user.id, req.params.hotelId);
+    await connectDB();
+
+    const rooms = await ownerService.getOwnerRoomsByHotel(
+      req.user.id,
+      req.params.hotelId
+    );
     res.status(200).json(rooms);
   } catch (err) {
     res.status(403).json({ error: err.message });
@@ -82,7 +108,13 @@ const getRoomsByHotel = async (req, res) => {
 
 const updateRoom = async (req, res) => {
   try {
-    const room = await ownerService.updateOwnerRoom(req.user.id, req.params.roomId, req.body);
+    await connectDB();
+
+    const room = await ownerService.updateOwnerRoom(
+      req.user.id,
+      req.params.roomId,
+      req.body
+    );
     res.status(200).json(room);
   } catch (err) {
     res.status(403).json({ error: err.message });
@@ -91,6 +123,8 @@ const updateRoom = async (req, res) => {
 
 const deleteRoom = async (req, res) => {
   try {
+    await connectDB();
+
     await ownerService.deleteOwnerRoom(req.user.id, req.params.roomId);
     res.status(204).send();
   } catch (err) {
