@@ -14,7 +14,7 @@ export const createBookingController = async (req, res) => {
 
     const userId = req.user.id;
 
-    const { hotelId, roomId, fromDate, toDate, totalPrice } = req.body;
+    const { hotelId, roomId, fromDate, toDate, guests, totalPrice } = req.body;
 
     const booking = await createBookingService({
       userId,
@@ -23,6 +23,7 @@ export const createBookingController = async (req, res) => {
       fromDate,
       toDate,
       totalPrice,
+      guests,
     });
 
     res.status(201).json({ success: true, booking });

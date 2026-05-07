@@ -62,3 +62,62 @@ export const getPaymentByBookingController = async (req, res) => {
     });
   }
 };
+
+
+export const updateSurgeFactorController = async (req, res) => {
+  try {
+    const { roomId, fromDate, toDate, surgeFactor } = req.body;
+
+    if (
+      !roomId ||
+      !fromDate ||
+      !toDate ||
+      surgeFactor === undefined ||
+      surgeFactor === null
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
+
+    if (Number(surgeFactor) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Surge factor must be greater than 0",
+      });
+    }
+
+    if (
+      isNaN(Date.parse(fromDate)) ||
+      isNaN(Date.parse(toDate))
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid date format",
+      });
+    }
+
+    const result =
+      await processPaymentServices.updateSurgeFactorService({
+        roomId,
+        fromDate,
+        toDate,
+        surgeFactor,
+      });
+
+    return res.json({
+      success: true,
+      message: "Surge factor updated successfully",
+      data: {
+        matched: result.matchedCount,
+        updated: result.modifiedCount,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};

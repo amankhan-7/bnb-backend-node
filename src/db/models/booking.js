@@ -23,6 +23,12 @@ const bookingSchema = new mongoose.Schema(
     fromDate: { type: Date, required: true },
     toDate: { type: Date, required: true },
 
+    guests: {
+      adults: { type: Number, required: true, min: 1, default: 1 },
+      children: { type: Number, required: true, min: 0, default: 0 },
+      infants: { type: Number, required: true, min: 0, default: 0 },
+    },
+
     totalPrice: {
       type: Number,
       required: true,
@@ -30,20 +36,22 @@ const bookingSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["PENDING", "CONFIRMED", "CANCELLED","EXPIRED"],
+      enum: ["PENDING", "CONFIRMED", "CANCELLED", "EXPIRED"],
       default: "PENDING",
     },
+
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Payment",
       default: null,
     },
+
     expiresAt: {
       type: Date,
       required: true,
     },
   },
-  { timestamps: true },
+  { timestamps: true }
 );
 
 const Booking = mongoose.model("Booking", bookingSchema);

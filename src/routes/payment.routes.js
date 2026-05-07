@@ -4,9 +4,11 @@ import express from "express";
 import {
   processPaymentController,
   getPaymentByBookingController,
+  updateSurgeFactorController,
 } from "../controllers/payment.controller.js";
 
-import authMiddleware from "../utils/auth.js";
+
+import authMiddleware, { requireRole } from "../utils/auth.js";
 
 const router = express.Router();
 
@@ -15,5 +17,12 @@ router.post("/process", authMiddleware, processPaymentController);
 
 // Get payment by booking
 router.get("/booking/:bookingId", authMiddleware, getPaymentByBookingController);
+
+// Update surge pricing
+router.patch(
+  "/surge",
+  authMiddleware, requireRole("owner"),
+  updateSurgeFactorController
+);
 
 export default router;

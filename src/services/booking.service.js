@@ -3,12 +3,14 @@ import mongoose from "mongoose";
 import Booking from "../db/models/booking.js";
 import Inventory from "../db/models/inventory.js";
 import Room from "../db/models/rooms.js";
+// import Redis from "../config/redis.js";
 
 const getDateRange = (start, end) => {
   const dates = [];
   const current = new Date(start);
+  const last = new Date(end);
 
-  while (current <= new Date(end)) {
+  while (current < last) {
     dates.push(new Date(current));
     current.setDate(current.getDate() + 1);
   }
@@ -23,26 +25,27 @@ export const createBookingService = async ({
   fromDate,
   toDate,
   totalPrice,
+  guests,
 }) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    //0. check for expired pending booking
+    //0. check for pending booking
     const expiredBookings = await Booking.find({
       status: "PENDING",
       expiresAt: { $lt: new Date() },
     }).session(session);
+
     //1. clearing the inventory if the booking is expired
     for (const b of expiredBookings) {
       const dates = getDateRange(b.fromDate, b.toDate);
 
       for (const date of dates) {
-        await Inventory.findOneAndUpdate(
-          { roomId: b.room, date },
-          { $inc: { bookedCount: -1 } },
-          { session },
-        );
+        if (Inventory.bookedCount > 0) {
+          await Inventory.findOneAndUpdate(
+            { roomId: b.room, date },
+            { $inc: { bookedCount: -1 } },
+            { session },
+          );
+        }
       }
 
       b.status = "EXPIRED";
@@ -56,6 +59,27 @@ export const createBookingService = async ({
     }).session(session);
 
     const dates = getDateRange(fromDate, toDate);
+
+    // 1. Try locking all dates in Redis first
+    const redisKeys = dates.map((date) => `hold:${roomId}:${date}`);
+
+    for (const key of redisKeys) {
+      const ok = await redis.set(key, userId, {
+        NX: true,
+        EX: 900, // 15 min hold
+      });
+
+      if (!ok) {
+        // rollback previously acquired locks
+        for (const k of redisKeys) {
+          await redis.del(k);
+        }
+
+        throw new Error("Room temporarily unavailable");
+      }
+    }
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
     // 3. Check or create inventory
     for (const date of dates) {
@@ -108,7 +132,7 @@ export const createBookingService = async ({
       session.endSession();
       return existingBooking;
     } else {
-      // 6. BLOCK INVENTORY ONLY FOR NEW BOOKING
+      // 6. HYDRATE INVENTORY ONLY FOR NEW BOOKING
       for (const date of dates) {
         await Inventory.findOneAndUpdate(
           { roomId, date },
@@ -118,6 +142,29 @@ export const createBookingService = async ({
       }
     }
 
+    const room = await Room.findById(roomId).session(session);
+
+    const nights = dates.length;
+
+    // guest counts
+    const adults = guests.adults;
+    const children = guests.children;
+    const infants = guests.infants;
+
+    // pricing logic (same as frontend)
+    const base = room.basePrice;
+
+    const extraAdults = Math.max(0, adults - 2);
+    const adultCost = extraAdults * (0.25 * base);
+
+    const childCost = children * (0.13 * base);
+
+    // infants usually FREE (common hotel rule)
+    const infantCost = 0;
+
+    const totalPerNight = base + adultCost + childCost + infantCost;
+
+    const totalPriceCalculated = Math.round(totalPerNight * nights);
     // 7. CREATE NEW BOOKING
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
     const booking = await Booking.create(
@@ -128,7 +175,8 @@ export const createBookingService = async ({
           room: roomId,
           fromDate,
           toDate,
-          totalPrice,
+          guests,
+          totalPrice: totalPriceCalculated,
           status: "PENDING",
           paymentId: null,
           expiresAt,
