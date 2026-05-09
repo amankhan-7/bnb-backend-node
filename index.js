@@ -8,6 +8,7 @@ import bookingRoutes from "./src/routes/booking.route.js";
 import paymentRoutes from "./src/routes/payment.routes.js";
 import ownerRoutes from "./src/routes/owner.routes.js";
 import { redis } from "./src/config/redis.js";
+import "./src/utils/booking.cron.js";
 
 const app = express();
 

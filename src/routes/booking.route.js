@@ -13,7 +13,7 @@ import authMiddleware from "../utils/auth.js";
 const router = express.Router();
 
 // Create booking (PENDING + inventory block)
-//router.post("/create", authMiddleware, createBookingController);
+router.post("/create", authMiddleware, createBookingController);
 
 // Get all bookings of logged-in user
 router.get("/my-bookings",authMiddleware , getUserBookingsController);

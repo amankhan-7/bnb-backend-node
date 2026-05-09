@@ -3,20 +3,8 @@ import mongoose from "mongoose";
 import Booking from "../db/models/booking.js";
 import Inventory from "../db/models/inventory.js";
 import Room from "../db/models/rooms.js";
-// import Redis from "../config/redis.js";
-
-const getDateRange = (start, end) => {
-  const dates = [];
-  const current = new Date(start);
-  const last = new Date(end);
-
-  while (current < last) {
-    dates.push(new Date(current));
-    current.setDate(current.getDate() + 1);
-  }
-
-  return dates;
-};
+import crypto from "crypto";
+import { redis } from "../config/redis.js";
 
 export const createBookingService = async ({
   userId,
@@ -24,178 +12,198 @@ export const createBookingService = async ({
   roomId,
   fromDate,
   toDate,
-  totalPrice,
   guests,
 }) => {
-  try {
-    //0. check for pending booking
-    const expiredBookings = await Booking.find({
-      status: "PENDING",
-      expiresAt: { $lt: new Date() },
-    }).session(session);
+  // -------------------------
+  // 1. Generate booking dates
+  // -------------------------
+  const dates = getDateRange(fromDate, toDate);
+  const lockedKeys = [];
+  // -------------------------
+  // 3. Start Mongo session
+  // -------------------------
+  const session = await mongoose.startSession();
 
-    //1. clearing the inventory if the booking is expired
-    for (const b of expiredBookings) {
-      const dates = getDateRange(b.fromDate, b.toDate);
+  let booking;
+
+  try {
+    await session.withTransaction(async () => {
+      const unavailableDates = [];
+
+      // -------------------------
+      // 7. Calculate pricing
+      // -------------------------
+      const room = await Room.findById(roomId).session(session);
+
+      if (!room) {
+        throw new Error("Room not found");
+      }
+
+      // -------------------------
+      // 4. Check inventory
+      // -------------------------
+
+      let totalPrice = 0;
 
       for (const date of dates) {
-        if (Inventory.bookedCount > 0) {
-          await Inventory.findOneAndUpdate(
-            { roomId: b.room, date },
-            { $inc: { bookedCount: -1 } },
+        let inventory = await Inventory.findOne({
+          roomId,
+          date,
+        }).session(session);
+
+        // create inventory if missing
+        if (!inventory) {
+          const room = await Room.findById(roomId).session(session);
+
+          if (!room) {
+            throw new Error("Room not found");
+          }
+
+          const created = await Inventory.create(
+            [
+              {
+                hotelId,
+                roomId,
+                date,
+                bookedCount: 0,
+                totalCount: room.totalCount,
+                closed: false,
+              },
+            ],
             { session },
           );
-        }
-      }
 
-      b.status = "EXPIRED";
-      await b.save({ session });
-    }
-
-    //2. now delete all expired pending bookings
-    await Booking.deleteMany({
-      status: "EXPIRED",
-      expiresAt: { $lt: new Date() },
-    }).session(session);
-
-    const dates = getDateRange(fromDate, toDate);
-
-    // 1. Try locking all dates in Redis first
-    const redisKeys = dates.map((date) => `hold:${roomId}:${date}`);
-
-    for (const key of redisKeys) {
-      const ok = await redis.set(key, userId, {
-        NX: true,
-        EX: 900, // 15 min hold
-      });
-
-      if (!ok) {
-        // rollback previously acquired locks
-        for (const k of redisKeys) {
-          await redis.del(k);
-        }
-
-        throw new Error("Room temporarily unavailable");
-      }
-    }
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    // 3. Check or create inventory
-    for (const date of dates) {
-      let inventory = await Inventory.findOne({ roomId, date }).session(
-        session,
-      );
-
-      if (!inventory) {
-        const room = await Room.findById(roomId).session(session);
-
-        inventory = await Inventory.create(
-          [
+          inventory = await Inventory.findOneAndUpdate(
             {
-              hotelId,
               roomId,
               date,
-              bookedCount: 0,
-              totalCount: room.totalCount,
-              closed: false,
-              surgeFactor: 1,
             },
-          ],
-          { session },
+            {
+              $setOnInsert: {
+                hotelId,
+                roomId,
+                date,
+                bookedCount: 0,
+                totalCount: room.totalCount,
+                closed: false,
+              },
+            },
+            {
+              upsert: true,
+              returnDocument: "after",
+              session,
+            },
+          );
+        }
+
+        // room closed for this date
+        if (inventory.closed) {
+          throw new Error(`Room closed on ${date}`);
+        }
+
+        const available = inventory.totalCount - inventory.bookedCount;
+
+        // no rooms available
+        if (available <= 0) {
+          unavailableDates.push(date);
+          continue;
+        }
+
+        // -------------------------
+        // 5. Lock last available room
+        // -------------------------
+        if (available === 1) {
+          const key = `lock:${roomId}:${date}`;
+
+          //if alredy locked by someone elese
+          const owner = await redis.get(key);
+
+          if (owner && owner !== userId) {
+            throw new Error(`Room temporarily locked on ${date}`);
+          }
+
+          const ok = await redis.set(key, userId, {
+            nx: true,
+            ex: 900,
+          });
+
+          if (!ok) {
+            throw new Error(`Room temporarily locked on ${date}`);
+          }
+
+          lockedKeys.push(key);
+        }
+
+        const base = room.basePrice;
+
+        const adults = guests?.adults ?? 0;
+        const children = guests?.children ?? 0;
+
+        const extraAdults = Math.max(0, adults - 2);
+
+        const adultCost = extraAdults * (0.25 * base);
+
+        const childCost = children * (0.13 * base);
+
+        const dayPrice = (base + adultCost + childCost) * inventory.surgeFactor;
+
+        totalPrice += Math.round(dayPrice);
+      }
+
+      // -------------------------
+      // 6. Stop if unavailable dates found
+      // -------------------------
+      if (unavailableDates.length > 0) {
+        const formattedDates = unavailableDates.map((date) =>
+          new Date(date).toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+          }),
         );
 
-        inventory = inventory[0];
+        throw new Error(`Room unavailable on ${formattedDates.join(", ")}`);
       }
 
-      if (inventory.closed) {
-        throw new Error(`Closed on ${date}`);
-      }
+      // -------------------------
+      // 8. Creating booking
+      // -------------------------
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
-      if (inventory.bookedCount >= inventory.totalCount) {
-        throw new Error(`Fully booked on ${date}`);
-      }
-    }
+      const createdBooking = await Booking.create(
+        [
+          {
+            user: userId,
+            hotel: hotelId,
+            room: roomId,
+            fromDate,
+            toDate,
+            guests,
+            totalPrice,
+            status: "PENDING",
+            expiresAt,
+          },
+        ],
+        { session },
+      );
 
-    // 4. CHECK EXISTING PENDING BOOKING (IMPORTANT FIX)
-    const existingBooking = await Booking.findOne({
-      user: userId,
-      hotel: hotelId,
-      room: roomId,
-      status: "PENDING",
-      expiresAt: { $gt: new Date() },
-    }).session(session);
+      booking = createdBooking[0];
+    });
 
-    // 5. IF EXISTS → RETURN IT (Can continue that booking)
-    if (existingBooking) {
-      await session.commitTransaction();
-      session.endSession();
-      return existingBooking;
-    } else {
-      // 6. HYDRATE INVENTORY ONLY FOR NEW BOOKING
-      for (const date of dates) {
-        await Inventory.findOneAndUpdate(
-          { roomId, date },
-          { $inc: { bookedCount: 1 } },
-          { session },
-        );
-      }
-    }
-
-    const room = await Room.findById(roomId).session(session);
-
-    const nights = dates.length;
-
-    // guest counts
-    const adults = guests.adults;
-    const children = guests.children;
-    const infants = guests.infants;
-
-    // pricing logic (same as frontend)
-    const base = room.basePrice;
-
-    const extraAdults = Math.max(0, adults - 2);
-    const adultCost = extraAdults * (0.25 * base);
-
-    const childCost = children * (0.13 * base);
-
-    // infants usually FREE (common hotel rule)
-    const infantCost = 0;
-
-    const totalPerNight = base + adultCost + childCost + infantCost;
-
-    const totalPriceCalculated = Math.round(totalPerNight * nights);
-    // 7. CREATE NEW BOOKING
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
-    const booking = await Booking.create(
-      [
-        {
-          user: userId,
-          hotel: hotelId,
-          room: roomId,
-          fromDate,
-          toDate,
-          guests,
-          totalPrice: totalPriceCalculated,
-          status: "PENDING",
-          paymentId: null,
-          expiresAt,
-        },
-      ],
-      { session },
-    );
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return booking[0];
+    return booking;
   } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
+    for (const key of lockedKeys) {
+      const owner = await redis.get(key);
+
+      if (owner === userId) {
+        await redis.del(key);
+      }
+    }
     throw err;
+  } finally {
+    // 9. closing session
+    await session.endSession();
   }
 };
-
 //list of alll bookings done either failed or success
 export const getUserBookingsService = async (userId) => {
   return Booking.find({ user: userId })
