@@ -6,6 +6,19 @@ import Room from "../db/models/rooms.js";
 import crypto from "crypto";
 import { redis } from "../config/redis.js";
 
+const getDateRange = (start, end) => {
+  const dates = [];
+  const current = new Date(start);
+  const last = new Date(end);
+
+  while (current < last) {
+    dates.push(new Date(current));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+};
+
 export const createBookingService = async ({
   userId,
   hotelId,
