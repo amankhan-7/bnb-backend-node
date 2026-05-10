@@ -3,21 +3,10 @@ import mongoose from "mongoose";
 import Booking from "../db/models/booking.js";
 import Inventory from "../db/models/inventory.js";
 import Room from "../db/models/rooms.js";
+import { getDateRange } from "../utils/getDateRange.js";
 import crypto from "crypto";
 import { redis } from "../config/redis.js";
 
-const getDateRange = (start, end) => {
-  const dates = [];
-  const current = new Date(start);
-  const last = new Date(end);
-
-  while (current < last) {
-    dates.push(new Date(current));
-    current.setDate(current.getDate() + 1);
-  }
-
-  return dates;
-};
 
 export const createBookingService = async ({
   userId,
@@ -66,26 +55,9 @@ export const createBookingService = async ({
 
         // create inventory if missing
         if (!inventory) {
-          const room = await Room.findById(roomId).session(session);
-
           if (!room) {
             throw new Error("Room not found");
           }
-
-          const created = await Inventory.create(
-            [
-              {
-                hotelId,
-                roomId,
-                date,
-                bookedCount: 0,
-                totalCount: room.totalCount,
-                closed: false,
-              },
-            ],
-            { session },
-          );
-
           inventory = await Inventory.findOneAndUpdate(
             {
               roomId,
@@ -102,7 +74,7 @@ export const createBookingService = async ({
               },
             },
             {
-              upsert: true,
+              upsert: true, //if there is no inventory found then i will create it
               returnDocument: "after",
               session,
             },
@@ -161,6 +133,27 @@ export const createBookingService = async ({
         const dayPrice = (base + adultCost + childCost) * inventory.surgeFactor;
 
         totalPrice += Math.round(dayPrice);
+      }
+
+      const existingBooking = await Booking.findOne({
+        user: userId,
+        room: roomId,
+        fromDate,
+        toDate,
+        status: "PENDING",
+        expiresAt: {
+          $gt: new Date(),
+        },
+      }).session(session);
+
+      if (existingBooking) {
+        existingBooking.guests = guests;
+        existingBooking.totalPrice = totalPrice;
+
+        await existingBooking.save({ session });
+
+        booking = existingBooking;
+        return;
       }
 
       // -------------------------

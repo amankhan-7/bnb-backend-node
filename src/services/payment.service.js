@@ -4,19 +4,9 @@ import mongoose from "mongoose";
 import Booking from "../db/models/booking.js";
 import Payment from "../db/models/payment.js";
 import Inventory from "../db/models/inventory.js";
+import { getDateRange } from "../utils/getDateRange.js";
+import { redis } from "../config/redis.js";
 
-const getDateRange = (start, end) => {
-  const dates = [];
-  const current = new Date(start);
-  const last = new Date(end);
-
-  while (current < last) {
-    dates.push(new Date(current));
-    current.setDate(current.getDate() + 1);
-  }
-
-  return dates;
-};
 
 export const processPaymentService = async ({
   userId,
@@ -27,98 +17,151 @@ export const processPaymentService = async ({
   const session = await mongoose.startSession();
 
   try {
-    await session.withTransaction(async () => {
-      const booking = await Booking.findById(bookingId).session(session);
+    const result = await session.withTransaction(async () => {
 
-      if (!booking) throw new Error("Booking not found");
+      const booking = await Booking.findById(
+        bookingId
+      ).session(session);
 
-      if (booking.user.toString() !== userId) {
+      if (!booking)
+        throw new Error("Booking not found");
+
+      if (
+        booking.user.toString() !== userId
+      ) {
         throw new Error("Unauthorized");
       }
 
-      if (booking.status === "CONFIRMED") {
-        return; // idempotent exit
+      if (
+        booking.status === "CONFIRMED"
+      ) {
+        return {
+          booking,
+          payment: null,
+        };
       }
 
-      if (booking.expiresAt < new Date()) {
+      if (
+        booking.expiresAt < new Date()
+      ) {
         booking.status = "EXPIRED";
-        await booking.save({ session });
 
-        throw new Error("Booking expired");
+        await booking.save({
+          session,
+        });
+
+        throw new Error(
+          "Booking expired"
+        );
       }
-      // prevent double processing (VERY IMPORTANT)
-      if (booking.status !== "PENDING") {
-        throw new Error("Invalid booking state");
+
+      if (
+        booking.status !== "PENDING"
+      ) {
+        throw new Error(
+          "Invalid booking state"
+        );
       }
 
-      const payment = await Payment.create(
-        [
-          {
-            bookingId: booking._id,
-            user: userId,
-            hotel: booking.hotel,
-            room: booking.room,
-            amount: booking.totalPrice,
-            method,
-            paymentStatus: success ? "SUCCESS" : "FAILED",
-            transactionId: `mock_${Date.now()}`,
-          },
-        ],
-        { session },
-      );
+      const payment =
+        await Payment.create(
+          [
+            {
+              bookingId:
+                booking._id,
+              user: userId,
+              hotel:
+                booking.hotel,
+              room: booking.room,
+              amount:
+                booking.totalPrice,
+              method,
+              paymentStatus:
+                success
+                  ? "SUCCESS"
+                  : "FAILED",
+              transactionId:
+                `mock_${Date.now()}`,
+            },
+          ],
+          { session },
+        );
 
-      booking.paymentId = payment[0]._id;
+      booking.paymentId =
+        payment[0]._id;
 
-      const dates = getDateRange(booking.fromDate, booking.toDate);
-      const roomId = booking.room._id;
-      
+      const dates =
+        getDateRange(
+          booking.fromDate,
+          booking.toDate,
+        );
+
+      const roomId =
+        booking.room.toString();
 
       if (success) {
-        booking.status = "CONFIRMED";
+        booking.status =
+          "CONFIRMED";
 
-        // INCREMENT INVENTORY
         for (const date of dates) {
-          const updated = await Inventory.findOneAndUpdate(
-            {
-              roomId: booking.room,
-              date,
-              $expr: {
-                $lt: ["$bookedCount", "$totalCount"],
+          const updated =
+            await Inventory.findOneAndUpdate(
+              {
+                roomId:
+                  booking.room,
+                date,
+                $expr: {
+                  $lt: [
+                    "$bookedCount",
+                    "$totalCount",
+                  ],
+                },
               },
-            },
-            {
-              $inc: {
-                bookedCount: 1,
+              {
+                $inc: {
+                  bookedCount: 1,
+                },
               },
-            },
-            {
-              session,
-              new: true,
-            },
-          );
+              {
+                session,
+                returnDocument:
+                  "after",
+              },
+            );
 
           if (!updated) {
-            throw new Error(`Inventory unavailable for ${date}`);
+            throw new Error(
+              `Inventory unavailable for ${date}`
+            );
           }
-          await redis.del(`lock:${roomId}:${date}`);
+
+          await redis.del(
+            `lock:${roomId}:${date}`
+          );
         }
       } else {
-        booking.status = "CANCELLED";
+        booking.status =
+          "CANCELLED";
 
         for (const date of dates) {
-          await redis.del(`lock:${roomId}:${date}`);
+          await redis.del(
+            `lock:${roomId}:${date}`
+          );
         }
       }
 
-      await booking.save({ session });
+      await booking.save({
+        session,
+      });
 
       return {
         booking,
-        payment: payment[0],
+        payment:
+          payment[0],
       };
     });
-  } catch (err) {
-    throw err;
+
+    return result;
   } finally {
     await session.endSession();
   }

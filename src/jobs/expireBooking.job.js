@@ -1,5 +1,19 @@
 import mongoose from "mongoose";
-import Booking from "../db/models/booking.js"
+import Booking from "../db/models/booking.js";
+import Inventory from "../db/models/inventory.js";
+
+const getDateRange = (start, end) => {
+  const dates = [];
+  const current = new Date(start);
+  const last = new Date(end);
+
+  while (current < last) {
+    dates.push(new Date(current));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+};
 
 export const handleExpiredBookings = async () => {
   const session = await mongoose.startSession();
@@ -26,7 +40,7 @@ export const handleExpiredBookings = async () => {
             },
           },
           {
-            new: true,
+            returnDocument: "after",
             session,
           },
         );

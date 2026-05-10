@@ -3,7 +3,8 @@ import cors from "cors";
 
 import hotelRoutes from "./src/routes/hotel.routes.js";
 import userRoutes from "./src/routes/user.routes.js";
-import roomRotes from "./src/routes/room.routes.js";
+import roomRoutes from "./src/routes/room.routes.js";
+import inventoryRoutes from "./src/routes/inventory.routes.js";
 import bookingRoutes from "./src/routes/booking.route.js";
 import paymentRoutes from "./src/routes/payment.routes.js";
 import ownerRoutes from "./src/routes/owner.routes.js";
@@ -55,7 +56,8 @@ app.get("/redis", async (req, res) => {
 // Routes
 app.use("/auth", userRoutes);
 app.use("/hotels", hotelRoutes);
-app.use("/rooms", roomRotes);
+app.use("/rooms", roomRoutes);
+app.use("/inventory", inventoryRoutes);
 app.use("/booking", bookingRoutes);
 app.use("/payment", paymentRoutes);
 app.use("/owner", ownerRoutes);
