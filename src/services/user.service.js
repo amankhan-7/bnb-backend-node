@@ -7,9 +7,18 @@ import {
 } from "../utils/jwt.js";
 import AppError from "../utils/ApiError.js";
 
+const sanitizeUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+});
+
+
 // Signup
 const signup = async (data) => {
   const { name, email, password, role } = data;
+  console.log(data);
 
   const existingUser = await User.findOne({ email });
   if (existingUser) {
@@ -21,20 +30,14 @@ const signup = async (data) => {
   const user = await User.create({
     name,
     email,
-    // password: hashedPassword,
+    password: hashedPassword,
     role: role === "owner" ? "owner" : "user",
   });
 
-  return user;
+  return sanitizeUser(user);
 };
 
 // Login
-const sanitizeUser = (user) => ({
-  id: user._id,
-  name: user.name,
-  email: user.email,
-  role: user.role,
-});
 
 export const login = async (data) => {
   try {
