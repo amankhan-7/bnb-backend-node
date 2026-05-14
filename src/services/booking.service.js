@@ -15,10 +15,13 @@ export const createBookingService = async ({
   toDate,
   guests,
 }) => {
-  // 1. Generate booking dates
   const dates = getDateRange(fromDate, toDate);
+
+  const normalize = (d) => new Date(d).toISOString().split("T")[0];
+
   const lockedKeys = [];
-  // 3. Start Mongo session
+  const locksToDelete = [];
+
   const session = await mongoose.startSession();
 
   let booking;
@@ -27,18 +30,47 @@ export const createBookingService = async ({
     await session.withTransaction(async () => {
       const unavailableDates = [];
 
-      // 7. Calculate pricing
       const room = await Room.findById(roomId).session(session);
 
       if (!room) {
         throw new Error("Room not found");
       }
 
-      // 4. Check inventory
-
       let totalPrice = 0;
 
-      for (const date of dates) {
+      // ---------------------------------
+      // 1. Check existing booking
+      // ---------------------------------
+      const existingBooking = await Booking.findOne({
+        user: userId,
+        room: roomId,
+        status: "PENDING",
+        expiresAt: {
+          $gt: new Date(),
+        },
+      }).session(session);
+
+      const oldDates = existingBooking
+        ? getDateRange(existingBooking.fromDate, existingBooking.toDate)
+        : [];
+
+      const newDates = dates;
+
+      const oldSet = new Set(oldDates.map(normalize));
+
+      const newSet = new Set(newDates.map(normalize));
+
+      const addedDates = newDates.filter((d) => !oldSet.has(normalize(d)));
+
+      const removedDates = oldDates.filter((d) => !newSet.has(normalize(d)));
+
+      // Validate only added dates
+      const datesToValidate = existingBooking ? addedDates : newDates;
+
+      // ---------------------------------
+      // 2. Validate inventory + locks
+      // ---------------------------------
+      for (const date of datesToValidate) {
         let inventory = await Inventory.findOne({
           roomId,
           date,
@@ -46,9 +78,6 @@ export const createBookingService = async ({
 
         // create inventory if missing
         if (!inventory) {
-          if (!room) {
-            throw new Error("Room not found");
-          }
           inventory = await Inventory.findOneAndUpdate(
             {
               roomId,
@@ -59,44 +88,41 @@ export const createBookingService = async ({
                 hotelId,
                 roomId,
                 date,
-                bookedCount: 0,
                 totalCount: room.totalCount,
                 closed: false,
               },
             },
             {
-              upsert: true, //if there is no inventory found then i will create it
+              upsert: true,
               returnDocument: "after",
               session,
             },
           );
         }
 
-        // room closed for this date
         if (inventory.closed) {
-          throw new Error(`Room closed on ${date}`);
+          throw new Error(`Room closed on ${normalize(date)}`);
         }
 
         const available = inventory.totalCount - inventory.bookedCount;
 
-        // no rooms available
         if (available <= 0) {
-          unavailableDates.push(date);
+          unavailableDates.push(normalize(date));
           continue;
         }
 
-        // 5. Lock last available room
+        // last room lock
         if (available === 1) {
-          const key = `lock:${roomId}:${date}`;
+          const key = `lock:${roomId}:${normalize(date)}`;
 
           const owner = await redis.get(key);
 
-          // locked by someone else
+          // someone else owns lock
           if (owner && owner !== userId.toString()) {
-            throw new Error(`Room temporarily locked on ${date}`);
+            throw new Error(`Room temporarily locked on ${normalize(date)}`);
           }
 
-          // create lock only if not already mine
+          // create lock if not mine
           if (!owner) {
             const ok = await redis.set(key, userId.toString(), {
               nx: true,
@@ -104,15 +130,42 @@ export const createBookingService = async ({
             });
 
             if (!ok) {
-              throw new Error(`Room temporarily locked on ${date}`);
+              throw new Error(`Room temporarily locked on ${normalize(date)}`);
             }
 
             lockedKeys.push(key);
           }
         }
+      }
+
+      // ---------------------------------
+      // 3. Stop unavailable dates
+      // ---------------------------------
+      if (unavailableDates.length > 0) {
+        const formattedDates = unavailableDates.map((date) =>
+          new Date(date).toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+          }),
+        );
+
+        throw new Error(`Room unavailable on ${formattedDates.join(", ")}`);
+      }
+
+      // ---------------------------------
+      // 4. Calculate FULL price
+      // (always final dates)
+      // ---------------------------------
+      for (const date of newDates) {
+        const inventory = await Inventory.findOne({
+          roomId,
+          date,
+        }).session(session);
+
         const base = room.basePrice;
 
         const adults = guests?.adults ?? 0;
+
         const children = guests?.children ?? 0;
 
         const extraAdults = Math.max(0, adults - 2);
@@ -126,44 +179,41 @@ export const createBookingService = async ({
         totalPrice += Math.round(dayPrice);
       }
 
-      const existingBooking = await Booking.findOne({
-        user: userId,
-        room: roomId,
-        fromDate,
-        toDate,
-        status: "PENDING",
-        expiresAt: {
-          $gt: new Date(),
-        },
-      }).session(session);
-
+      // ---------------------------------
+      // 5. Existing booking update
+      // ---------------------------------
       if (existingBooking) {
+        // queue lock cleanup
+        for (const date of removedDates) {
+          const key = `lock:${roomId}:${normalize(date)}`;
+
+          const owner = await redis.get(key);
+
+          if (owner === userId.toString()) {
+            locksToDelete.push(key);
+          }
+        }
+
+        existingBooking.fromDate = fromDate;
+
+        existingBooking.toDate = toDate;
+
         existingBooking.guests = guests;
+
         existingBooking.totalPrice = totalPrice;
 
-        await existingBooking.save({ session });
+        await existingBooking.save({
+          session,
+        });
 
         booking = existingBooking;
+
         return;
       }
 
-      // -------------------------
-      // 6. Stop if unavailable dates found
-      // -------------------------
-      if (unavailableDates.length > 0) {
-        const formattedDates = unavailableDates.map((date) =>
-          new Date(date).toLocaleDateString("en-IN", {
-            day: "numeric",
-            month: "short",
-          }),
-        );
-
-        throw new Error(`Room unavailable on ${formattedDates.join(", ")}`);
-      }
-
-      // -------------------------
-      // 8. Creating booking
-      // -------------------------
+      // ---------------------------------
+      // 6. Create booking
+      // ---------------------------------
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
       const createdBooking = await Booking.create(
@@ -186,8 +236,21 @@ export const createBookingService = async ({
       booking = createdBooking[0];
     });
 
+    // ---------------------------------
+    // 7. Delete removed locks
+    // AFTER successful transaction
+    // ---------------------------------
+    for (const key of locksToDelete) {
+      const owner = await redis.get(key);
+
+      if (owner === userId.toString()) {
+        await redis.del(key);
+      }
+    }
+
     return booking;
   } catch (err) {
+    // rollback created locks
     for (const key of lockedKeys) {
       const owner = await redis.get(key);
 
@@ -195,9 +258,9 @@ export const createBookingService = async ({
         await redis.del(key);
       }
     }
+
     throw err;
   } finally {
-    // 9. closing session
     await session.endSession();
   }
 };
