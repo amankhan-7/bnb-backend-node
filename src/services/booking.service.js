@@ -15,14 +15,10 @@ export const createBookingService = async ({
   toDate,
   guests,
 }) => {
-  // -------------------------
   // 1. Generate booking dates
-  // -------------------------
   const dates = getDateRange(fromDate, toDate);
   const lockedKeys = [];
-  // -------------------------
   // 3. Start Mongo session
-  // -------------------------
   const session = await mongoose.startSession();
 
   let booking;
@@ -31,18 +27,14 @@ export const createBookingService = async ({
     await session.withTransaction(async () => {
       const unavailableDates = [];
 
-      // -------------------------
       // 7. Calculate pricing
-      // -------------------------
       const room = await Room.findById(roomId).session(session);
 
       if (!room) {
         throw new Error("Room not found");
       }
 
-      // -------------------------
       // 4. Check inventory
-      // -------------------------
 
       let totalPrice = 0;
 
@@ -93,13 +85,10 @@ export const createBookingService = async ({
           continue;
         }
 
-        // -------------------------
         // 5. Lock last available room
-        // -------------------------
         if (available === 1) {
           const key = `lock:${roomId}:${date}`;
 
-          //if alredy locked by someone elese
           const owner = await redis.get(key);
 
           // locked by someone else
@@ -107,11 +96,8 @@ export const createBookingService = async ({
             throw new Error(`Room temporarily locked on ${date}`);
           }
 
-          // already my lock
-          if (owner === userId.toString()) {
-            continue;
-            //create new lock
-          } else {
+          // create lock only if not already mine
+          if (!owner) {
             const ok = await redis.set(key, userId.toString(), {
               nx: true,
               ex: 900,
@@ -124,7 +110,6 @@ export const createBookingService = async ({
             lockedKeys.push(key);
           }
         }
-
         const base = room.basePrice;
 
         const adults = guests?.adults ?? 0;
