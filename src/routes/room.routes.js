@@ -8,7 +8,7 @@ const router = express.Router();
 
 router.post("/", authMiddleware, requireRole("owner"), roomController.createRoom);
 router.get("/hotel/:hotelId", roomController.getRoomsByHotel);
-router.get("/:roomId", authMiddleware, roomController.getRoomById);
+router.get("/:roomId", authMiddleware, requireRole("owner"), roomController.getRoomById);
 router.put("/:roomId", authMiddleware, requireRole("owner"), roomController.updateRoom);
 router.delete("/:roomId", authMiddleware, requireRole("owner"), roomController.deleteRoom);
 

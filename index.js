@@ -10,6 +10,7 @@ import paymentRoutes from "./src/routes/payment.routes.js";
 import ownerRoutes from "./src/routes/owner.routes.js";
 import { redis } from "./src/config/redis.js";
 import "./src/utils/booking.cron.js";
+import cloudinaryRoutes from "./src/routes/cloudinary/cloudinary.route.js"
 
 const app = express();
 
@@ -61,5 +62,6 @@ app.use("/inventory", inventoryRoutes);
 app.use("/booking", bookingRoutes);
 app.use("/payment", paymentRoutes);
 app.use("/owner", ownerRoutes);
+app.use("/cloudinary", cloudinaryRoutes);
 
 export default app;
