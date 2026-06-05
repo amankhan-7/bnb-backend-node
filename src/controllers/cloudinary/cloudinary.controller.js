@@ -28,7 +28,7 @@ export const testDeleteCloudinaryImage = async (req, res) => {
     res.status(200).json({
       success: true,
       result,
-    });
+    }); 
   } catch (error) {
     res.status(500).json({
       success: false,

@@ -53,9 +53,15 @@ const updateRoom = async (req, res) => {
       req.user.id
     );
 
-    res.json(room);
+    res.status(200).json({
+      success: true,
+      data: room,
+    });
   } catch (err) {
-    res.status(403).json({ error: err.message });
+    res.status(400).json({
+      success: false,
+      error: err.message,
+    });
   }
 };
 

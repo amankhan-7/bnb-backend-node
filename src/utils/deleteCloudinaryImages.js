@@ -1,27 +1,34 @@
-
 import cloudinary from "../config/cloudinary.js";
 
-const deleteUnusedCloudinaryImages = async (
+export const deleteUnusedCloudinaryImages = async (
   oldPhotos = [],
   newPhotos = []
 ) => {
-  const newIds = new Set(
-    newPhotos
-      .filter((photo) => photo?.public_id)
-      .map((photo) => photo.public_id)
-  );
+  try {
+    const newIds = new Set(
+      newPhotos
+        .filter((p) => p?.public_id)
+        .map((p) => p.public_id)
+    );
 
-  const removedPhotos = oldPhotos.filter(
-    (photo) => !newIds.has(photo.public_id)
-  );
+    const removedPhotos = oldPhotos.filter(
+      (p) => !newIds.has(p.public_id)
+    );
 
-  if (!removedPhotos.length) return;
+    if (!removedPhotos.length) return;
 
-  await Promise.all(
-    removedPhotos.map((photo) =>
-      cloudinary.uploader.destroy(photo.public_id)
-    )
-  );
+    await Promise.all(
+      removedPhotos.map((p) =>
+        cloudinary.uploader.destroy(p.public_id, {
+          invalidate: true,
+        })
+      )
+    );
+  } catch (err) {
+    // IMPORTANT: don't break update flow
+    console.error("Cloudinary cleanup failed:", err.message);
+  }
 };
 
 export default deleteUnusedCloudinaryImages;
+

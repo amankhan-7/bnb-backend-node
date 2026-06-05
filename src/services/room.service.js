@@ -49,28 +49,44 @@ const updateRoom = async (roomId, data, userId) => {
     throw new Error("Unauthorized");
   }
 
-  // Save existing photos before update
+  // Keep old photos safely
   const oldPhotos = [...room.photos];
 
-  Object.assign(room, data);
+  // ❗ Only allow safe fields (VERY IMPORTANT)
+  const allowedFields = {
+    type: data.type,
+    basePrice: data.basePrice,
+    amenities: data.amenities,
+    totalCount: data.totalCount,
+    capacity: data.capacity,
+    photos: data.photos, // controlled explicitly
+  };
+
+  Object.keys(allowedFields).forEach(
+    (key) => {
+      if (allowedFields[key] !== undefined) {
+        room[key] = allowedFields[key];
+      }
+    }
+  );
 
   await room.save();
 
-  // Delete removed Cloudinary images
- try {
-  await deleteUnusedCloudinaryImages(
-    oldPhotos,
-    room.photos
-  );
-} catch (err) {
-  console.error(
-    "Cloudinary cleanup failed:",
-    err
-  );
-}
+  // Cloudinary cleanup
+  try {
+    await deleteUnusedCloudinaryImages(
+      oldPhotos,
+      room.photos
+    );
+  } catch (err) {
+    console.error(
+      "Cloudinary cleanup failed:",
+      err.message
+    );
+  }
+
   return room;
 };
-
 
 // Delete Room
 const deleteRoom = async (roomId, userId) => {

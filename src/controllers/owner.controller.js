@@ -36,7 +36,6 @@ const getMyHotelById = async (req, res) => {
     res.status(404).json({ error: err.message });
   }
 };
-
 const updateMyHotel = async (req, res) => {
   try {
     await connectDB();
@@ -46,9 +45,16 @@ const updateMyHotel = async (req, res) => {
       req.params.hotelId,
       req.body
     );
-    res.status(200).json(hotel);
+
+    res.status(200).json({
+      success: true,
+      data: hotel,
+    });
   } catch (err) {
-    res.status(403).json({ error: err.message });
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 

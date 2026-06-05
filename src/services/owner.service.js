@@ -2,6 +2,7 @@ import Hotel from "../db/models/hotels.js";
 import Room from "../db/models/rooms.js";
 import Inventory from "../db/models/inventory.js";
 import hotelService from "./hotel.service.js";
+import deleteUnusedCloudinaryImages from "../utils/deleteCloudinaryImages.js";
 
 const createOwnerHotel = async (ownerId, data) => {
   return Hotel.create({
@@ -21,12 +22,31 @@ const getOwnerHotelById = async (ownerId, hotelId) => {
   return hotel;
 };
 
-const updateOwnerHotel = async (ownerId, hotelId, data) => {
-  const hotel = await Hotel.findOne({ _id: hotelId, owner: ownerId });
-  if (!hotel) throw new Error("Hotel not found for this owner");
+export const updateOwnerHotel = async (ownerId, hotelId, data) => {
+  const hotel = await Hotel.findById(hotelId);
+
+  if (!hotel) {
+    throw new Error("Hotel not found");
+  }
+
+  if (hotel.owner.toString() !== ownerId.toString()) {
+    throw new Error("Unauthorized for this hotel");
+  }
+
+  // keep snapshot before update
+  const oldPhotos = [...hotel.photos];
 
   Object.assign(hotel, data);
   await hotel.save();
+
+  // cleanup cloudinary AFTER successful save
+  // Delete removed Cloudinary images
+  try {
+    await deleteUnusedCloudinaryImages(oldPhotos, hotel.photos);
+  } catch (err) {
+    console.error("Cloudinary cleanup failed:", err);
+  }
+
   return hotel;
 };
 
